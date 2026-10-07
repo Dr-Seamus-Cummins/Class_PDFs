@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Class PDFs</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font:16px system-ui,sans-serif;color:#17314d;background:#eff3f8}main{max-width:950px;margin:auto;padding:30px 20px}h1{margin-bottom:8px}p{line-height:1.5}article{padding:20px;margin:18px 0;background:white;border:1px solid #d5dfeb;border-radius:10px}h2{font-size:20px;overflow-wrap:anywhere}button,.button{background:#174d80;color:white;padding:9px 13px;border:0;border-radius:5px;cursor:pointer;font:inherit;text-decoration:none;display:inline-block}button:disabled{opacity:.45;cursor:default}textarea{width:100%;height:105px;margin-top:14px;padding:10px}input{font:inherit;padding:7px;max-width:100%}#viewer{position:fixed;inset:0;display:flex;flex-direction:column;background:#303944}#toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:7px;padding:8px;background:#fff;font-size:14px}#toolbar button{padding:6px 10px}#page{width:65px}#stage{flex:1;min-height:0;overflow:auto;padding:12px;outline-offset:-3px}#paper{width:max-content;min-width:100%;min-height:100%;display:flex;justify-content:center;align-items:center}canvas{display:block;background:white;box-shadow:0 2px 14px #0005}#message{margin:0;padding:5px 12px;background:#fff;font-size:13px}#message:empty{display:none}[hidden]{display:none!important}.link{color:#174d80}#toolbar a{margin-left:auto}#status{white-space:pre-wrap}#manual{display:flex;gap:8px;flex-wrap:wrap}#filename{flex:1;min-width:180px}
+</style></head><body>
+<main id="catalog"><h1>Class PDFs</h1><p>Open a PDF or copy its embed code into your Canvas page's HTML editor.</p><p id="status" role="status">Loading PDF list…</p><div id="list"></div><details><summary>Generate an embed by filename</summary><p>Enter the exact name of a PDF already uploaded beside index.html.</p><form id="manual"><input id="filename" aria-label="PDF filename" placeholder="Week-01.pdf" required><button>Generate embed</button></form></details></main>
+<section id="viewer" hidden aria-label="PDF viewer"><nav id="toolbar" aria-label="PDF controls"><button id="prev" disabled aria-label="Previous page">◀</button><label>Page <input id="page" type="number" min="1" value="1" disabled></label><span id="total">/ …</span><button id="next" disabled aria-label="Next page">▶</button><button id="smaller" disabled aria-label="Zoom out">−</button><button id="larger" disabled aria-label="Zoom in">+</button><button id="fit" disabled>Fit page</button><button id="full">Full screen</button><a id="download" class="link" target="_blank" rel="noopener">Open PDF</a></nav><p id="message" role="status">Loading PDF…</p><div id="stage" tabindex="0" aria-label="PDF page. Use left and right arrows to change pages."><div id="paper"><canvas id="canvas" role="img" aria-label="PDF page"></canvas></div></div></section>
+<script type="module">
+// Upload index.html and your PDFs together in the ROOT of a public GitHub repository.
+// Enable GitHub Pages from main / (root). No edits needed on standard project github.io URLs.
+const BRANCH='main';
+const $=id=>document.getElementById(id);
+const base=new URL('./',location.href);
+const valid=name=>typeof name==='string' && !/[\\/\x00-\x1f]/.test(name) && /\.pdf$/i.test(name);
+const fileURL=name=>new URL(encodeURIComponent(name),base).href;
+function viewerURL(name){const u=new URL('index.html',base);u.searchParams.set('pdf',name);return u.href;}
+function card(name){
+ const article=document.createElement('article'),title=document.createElement('h2'),open=document.createElement('a'),copy=document.createElement('button'),code=document.createElement('textarea');
+ title.textContent=name;open.textContent='Open PDF';open.className='button';open.href=viewerURL(name);open.target='_blank';open.rel='noopener';open.style.marginRight='8px';copy.textContent='Copy Canvas embed';
+ const frame=document.createElement('iframe');frame.src=viewerURL(name);frame.title=name;frame.width='100%';frame.height='700';frame.style.border='0';frame.setAttribute('allowfullscreen','');frame.setAttribute('loading','lazy');code.value=frame.outerHTML;code.readOnly=true;code.setAttribute('aria-label','Canvas HTML embed code');
+ copy.onclick=async()=>{try{await navigator.clipboard.writeText(code.value);copy.textContent='Copied';}catch{code.focus();code.select();copy.textContent='Press Ctrl+C or Cmd+C';}};
+ article.append(title,open,copy,code);$('list').append(article);
+}
+$('manual').onsubmit=e=>{e.preventDefault();const name=$('filename').value.trim();if(!valid(name)){$('status').textContent='Enter a PDF filename without a folder path.';return;}card(name);$('filename').value='';};
+async function catalogue(){
+ const owner=location.hostname.endsWith('.github.io')?location.hostname.slice(0,-10):'';
+ const repo=decodeURIComponent(base.pathname.split('/').filter(Boolean)[0]||'');
+ if(!owner||!repo)throw Error('Open this file on your published GitHub Pages website. Automatic listing requires a standard github.io project URL.');
+ const r=await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/?ref=${encodeURIComponent(BRANCH)}`);
+ if(!r.ok)throw Error(`Could not load the list (GitHub ${r.status}). Check the repository is public and uses main. You can also generate an embed by filename below.`);
+ const items=(await r.json()).filter(x=>x.type==='file'&&valid(x.name)).sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
+ items.forEach(x=>card(x.name));$('status').textContent=items.length?`${items.length} PDF(s).`:'Upload PDF files beside index.html, wait for Pages to publish, then refresh.';
+}
+async function viewer(name){
+ if(!valid(name))throw Error('Use a PDF filename from the repository root, such as Week-01.pdf.');
+ $('catalog').hidden=true;$('viewer').hidden=false;$('download').href=fileURL(name);document.title=name;
+ // PDF.js renders at the screen's pixel density for sharp text.
+ const CDN='https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/';
+ const pdfjs=await import(CDN+'build/pdf.min.mjs');
+ pdfjs.GlobalWorkerOptions.workerSrc=CDN+'build/pdf.worker.min.mjs';
+ const loading=pdfjs.getDocument({url:fileURL(name),cMapUrl:CDN+'cmaps/',cMapPacked:true,standardFontDataUrl:CDN+'standard_fonts/'});
+ loading.onPassword=(update,reason)=>{const password=prompt(reason===2?'Incorrect password. Try again:':'This PDF needs a password:');if(password===null){loading.destroy();$('message').textContent='Password entry cancelled. Reload to try again.';}else update(password);};
+ const pdf=await loading.promise;
+ let number=1,zoom=1,revision=0,chain=Promise.resolve();
+ $('page').max=pdf.numPages;$('total').textContent='/ '+pdf.numPages;
+ for(const id of ['page','smaller','larger','fit'])$(id).disabled=false;
+ function render(){
+  const ticket=++revision;
+  chain=chain.catch(()=>{}).then(async()=>{
+   if(ticket!==revision)return;
+   $('message').textContent='Rendering…';
+   const page=await pdf.getPage(number);if(ticket!==revision)return;
+   const unit=page.getViewport({scale:1}),stage=$('stage');
+   const scale=Math.max(.05,Math.min((stage.clientWidth-24)/unit.width,(stage.clientHeight-24)/unit.height))*zoom;
+   const viewport=page.getViewport({scale}),canvas=$('canvas');
+   const density=Math.min(window.devicePixelRatio||1,3,Math.sqrt(16000000/(viewport.width*viewport.height)));
+   canvas.width=Math.max(1,Math.floor(viewport.width*density));canvas.height=Math.max(1,Math.floor(viewport.height*density));canvas.style.width=viewport.width+'px';canvas.style.height=viewport.height+'px';
+   await page.render({canvasContext:canvas.getContext('2d'),viewport,transform:[density,0,0,density,0,0]}).promise;
+   canvas.setAttribute('aria-label',`Page ${number} of ${pdf.numPages} in ${name}. Use Open PDF for selectable text and accessibility features.`);
+   $('page').value=number;$('prev').disabled=number===1;$('next').disabled=number===pdf.numPages;
+   if(ticket===revision)$('message').textContent='';
+  }).catch(error=>{$('message').textContent='Unable to render this page: '+error.message+'. Try Open PDF.';});
+ }
+ function go(n){number=Math.max(1,Math.min(pdf.numPages,Number.isFinite(n)?Math.trunc(n):1));$('stage').scrollTo(0,0);render();}
+ $('prev').onclick=()=>go(number-1);$('next').onclick=()=>go(number+1);$('page').onchange=()=>go(Number($('page').value));
+ $('smaller').onclick=()=>{zoom=Math.max(.25,zoom/1.25);render();};$('larger').onclick=()=>{zoom=Math.min(5,zoom*1.25);render();};$('fit').onclick=()=>{zoom=1;render();};
+ $('full').onclick=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await $('viewer').requestFullscreen();}catch{$('message').textContent='Full screen is unavailable here. Open the PDF in a new tab instead.';}};
+ $('stage').onkeydown=e=>{if(e.key==='ArrowRight'){e.preventDefault();go(number+1);}if(e.key==='ArrowLeft'){e.preventDefault();go(number-1);}};
+ let timer;new ResizeObserver(()=>{clearTimeout(timer);timer=setTimeout(render,120);}).observe($('stage'));
+ render();
+}
+const name=new URLSearchParams(location.search).get('pdf');
+(name===null?catalogue():viewer(name)).catch(error=>{const out=$('viewer').hidden?$('status'):$('message');out.textContent='Could not load: '+error.message+' Check the filename and that GitHub Pages has finished publishing. If the viewer library is blocked, use Open PDF.';});
+</script></body></html>
